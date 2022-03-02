@@ -1,0 +1,33 @@
+/**
+ * These arguments were used when this file was generated. They will be automatically applied on subsequent loads
+ * via the GUI or CLI. Run CLI with '--help' for additional information on how to override these arguments.
+ * @cliArgs --board "/ti/boards/CC1352R1_LAUNCHXL" --rtos "tirtos" --product "simplelink_cc13xx_cc26xx_sdk@5.40.00.40"
+ * @versions {"tool":"1.10.0+2163"}
+ */
+
+/**
+ * Import the modules used in this configuration.
+ */
+const Power = scripting.addModule("/ti/drivers/Power");
+const UART  = scripting.addModule("/ti/drivers/UART", {}, false);
+const UART1 = UART.addInstance();
+
+/**
+ * Write custom configuration values to the imported modules.
+ */
+const CCFG              = scripting.addModule("/ti/devices/CCFG", {}, false);
+CCFG.ccfgTemplate.$name = "ti_devices_CCFGTemplate0";
+
+UART1.$name               = "CONFIG_UART_0";
+UART1.$hardware           = system.deviceData.board.components.XDS110UART;
+UART1.txPinInstance.$name = "CONFIG_GPIO_0";
+UART1.rxPinInstance.$name = "CONFIG_GPIO_1";
+
+/**
+ * Pinmux solution for unlocked pins/peripherals. This ensures that minor changes to the automatic solver in a future
+ * version of the tool will not impact the pinmux you originally saw.  These lines can be completely deleted in order to
+ * re-solve from scratch.
+ */
+UART1.uart.$suggestSolution       = "UART1";
+UART1.uart.txPin.$suggestSolution = "boosterpack.4";
+UART1.uart.rxPin.$suggestSolution = "boosterpack.3";
