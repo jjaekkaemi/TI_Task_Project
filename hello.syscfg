@@ -8,15 +8,41 @@
 /**
  * Import the modules used in this configuration.
  */
+const GPIO  = scripting.addModule("/ti/drivers/GPIO", {}, false);
+const GPIO1 = GPIO.addInstance();
+const GPIO6 = GPIO.addInstance();
+const I2C   = scripting.addModule("/ti/drivers/I2C", {}, false);
+const I2C1  = I2C.addInstance();
 const Power = scripting.addModule("/ti/drivers/Power");
+const SPI   = scripting.addModule("/ti/drivers/SPI", {}, false);
+const SPI1  = SPI.addInstance();
 const UART  = scripting.addModule("/ti/drivers/UART", {}, false);
 const UART1 = UART.addInstance();
 
 /**
  * Write custom configuration values to the imported modules.
  */
+GPIO1.mode               = "Output";
+GPIO1.$name              = "CONFIG_PCA9574_RESET";
+GPIO1.initialOutputState = "High";
+GPIO1.gpioPin.$assign    = "boosterpack.31";
+
+GPIO6.$name           = "CONFIG_PCA9574_A0";
+GPIO6.mode            = "Output";
+GPIO6.gpioPin.$assign = "boosterpack.24";
+
+I2C1.$name              = "CONFIG_I2C_0";
+I2C1.i2c.$assign        = "I2C0";
+I2C1.i2c.sdaPin.$assign = "boosterpack.10";
+I2C1.i2c.sclPin.$assign = "boosterpack.9";
+
 const CCFG              = scripting.addModule("/ti/devices/CCFG", {}, false);
 CCFG.ccfgTemplate.$name = "ti_devices_CCFGTemplate0";
+
+SPI1.$name               = "CONFIG_SPI_0";
+SPI1.mode                = "Four Pin SS Active Low";
+SPI1.spi.sclkPin.$assign = "boosterpack.6";
+SPI1.spi.mosiPin.$assign = "boosterpack.5";
 
 UART1.$name               = "CONFIG_UART_0";
 UART1.$hardware           = system.deviceData.board.components.XDS110UART;
@@ -28,6 +54,11 @@ UART1.rxPinInstance.$name = "CONFIG_GPIO_1";
  * version of the tool will not impact the pinmux you originally saw.  These lines can be completely deleted in order to
  * re-solve from scratch.
  */
-UART1.uart.$suggestSolution       = "UART1";
-UART1.uart.txPin.$suggestSolution = "boosterpack.4";
-UART1.uart.rxPin.$suggestSolution = "boosterpack.3";
+SPI1.spi.$suggestSolution              = "SSI0";
+SPI1.spi.misoPin.$suggestSolution      = "boosterpack.32";
+SPI1.spi.dmaRxChannel.$suggestSolution = "DMA_CH3";
+SPI1.spi.dmaTxChannel.$suggestSolution = "DMA_CH4";
+SPI1.spi.ssPin.$suggestSolution        = "boosterpack.18";
+UART1.uart.$suggestSolution            = "UART0";
+UART1.uart.txPin.$suggestSolution      = "boosterpack.4";
+UART1.uart.rxPin.$suggestSolution      = "boosterpack.3";

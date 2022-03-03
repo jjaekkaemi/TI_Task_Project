@@ -48,6 +48,8 @@
 /* Driver Header files */
 #include <ti/drivers/GPIO.h>
 #include <ti/drivers/UART.h>
+#include <ti/drivers/I2C.h>
+ #include <ti/drivers/SPI.h>
 
 /* Driver configuration */
 #include "ti_drivers_config.h"
@@ -63,20 +65,74 @@
 #define DELAY_US(i)      (Task_sleep(((i) * 1) / Clock_tickPeriod))
 #define MS_2_TICKS(ms)   (((ms) * 1000) / Clock_tickPeriod)
 
+#define OPT_ADDR 0x40
+
+/* Function */
+void uartInit();
+void uartTask1(UArg arg0, UArg arg1);
+void uartTask2(UArg arg0, UArg arg1);
+int i2cInit();
+void gpioInit();
+void ioExpanderResetTask();
+void ioExpanderLCDTask();
+int spiInit();
+void spiTask();
+
+/* Global */
+uint8_t appTaskStack[TASK_STACK_SIZE], appTaskStack2[TASK_STACK_SIZE];
+Task_Struct task0, task1;
+
+UART_Handle uart;
+UART_Params uartParams;
+I2C_Handle i2cHandle;
+SPI_Handle spi;
 /*
  *  ======== main ========
  */
 
-/* Global */
-uint8_t appTaskStack[TASK_STACK_SIZE];
-uint8_t appTaskStack2[TASK_STACK_SIZE];
-Task_Struct task0;
-Task_Struct task1;
+int main()
+{
 
-UART_Handle uart;
-UART_Params uartParams;
+    /* Call driver init functions */
+    Board_init();
 
-void uartInit(){
+    uartInit();
+//    gpioInit();
+//    i2cInit();
+    spiInit();
+    //ioExpanderResetTask();
+
+    Task_Params taskParams;
+
+    // Configure task
+    Task_Params_init(&taskParams);
+//    taskParams.stack = appTaskStack;
+//    taskParams.stackSize = TASK_STACK_SIZE;
+//    taskParams.priority = TASK_PRIORITY;
+//
+//    Task_construct(&task0, ioExpanderResetTask, &taskParams, NULL);
+
+    // Configure task
+    taskParams.stack = appTaskStack2;
+    taskParams.stackSize = TASK_STACK_SIZE;
+    taskParams.priority = TASK_PRIORITY;
+
+    Task_construct(&task1, spiTask, &taskParams, NULL);
+
+//    Task_construct(&task1, ioExpanderLCDTask, &taskParams, NULL);
+
+    /*
+     *  normal BIOS programs, would call BIOS_start() to enable interrupts
+     *  and start the scheduler and kick BIOS into gear.  But, this program
+     *  is a simple sanity test and calls BIOS_exit() instead.
+     */
+    // BIOS_exit(0);  /* terminates program and dumps SysMin output */
+    BIOS_start();
+    return (0);
+}
+
+void uartInit()
+{
     // Initialize the UART driver.
     UART_init();
     // Create a UART with data processing off.
@@ -88,67 +144,134 @@ void uartInit(){
     uartParams.baudRate = 9600;
     // Open an instance of the UART drivers
     uart = UART_open(0, &uartParams);
-    if (uart == NULL) {
+    if (uart == NULL)
+    {
         // UART_open() failed
+        while (1)
+            ;
+    }
+}
+void gpioInit()
+{
+    //Initialize GPIO
+    GPIO_init();
+    GPIO_setConfig(CONFIG_PCA9574_RESET, GPIO_CFG_OUT_STD | GPIO_CFG_OUT_HIGH);
+}
+
+int i2cInit()
+{
+    //Initialize I2C
+    I2C_init();
+
+    I2C_Params params;
+    I2C_Params_init(&params);
+    params.bitRate = I2C_400kHz;
+
+    // Open I2C bus for usage
+    i2cHandle = I2C_open(CONFIG_I2C_0, &params);
+
+    if (i2cHandle == NULL)
+    {
+        return -1;
+    }
+    return 0;
+}
+int spiInit(){
+    SPI_Params spiParams;
+
+
+    SPI_init();  // Initialize the SPI driver
+    SPI_Params_init(&spiParams);  // Initialize SPI parameters
+    spiParams.dataSize = 8;       // 8-bit data size
+    spi = SPI_open(CONFIG_SPI_0, &spiParams);
+    if (spi == NULL) {
+        return -1;
+    }
+    return 0;
+}
+void spiTask(){
+    int MSGSIZE = 10;
+    SPI_Transaction spiTransaction;
+    // Fill in transmitBuffer
+    uint8_t transmitBuffer[MSGSIZE];
+    uint8_t receiveBuffer[MSGSIZE];
+    bool transferOK;
+
+    spiTransaction.count = MSGSIZE;
+    spiTransaction.txBuf = (void *)transmitBuffer;
+    spiTransaction.rxBuf = (void *)receiveBuffer;
+    transferOK = SPI_transfer(spi, &spiTransaction);
+    if (!transferOK) {
+        // Error in SPI or transfer already in progress.
         while (1);
     }
 }
- void uartTask1(UArg arg0, UArg arg1){
+void ioExpanderResetTask()
+{
+    // Initialize slave address of transaction
+    DELAY_US(10);
 
-    while (1) {
+    GPIO_write(CONFIG_PCA9574_A0, 0);
+    DELAY_US(1);
+
+    GPIO_write(CONFIG_PCA9574_RESET, 0);
+    DELAY_US(1);
+    GPIO_write(CONFIG_PCA9574_RESET, 1);
+}
+
+void ioExpanderLCDTask()
+{
+    I2C_Transaction transaction = { 0 };
+    uint8_t writeBuffer[2];
+    bool status = false;
+    uint8_t out = 0x00;
+    while (1)
+    {
+
+
+        writeBuffer[0] = 0x05;
+        writeBuffer[1] = ~out;
+
+
+        transaction.writeBuf = writeBuffer;
+        transaction.writeCount = 2;
+        transaction.readBuf = NULL;
+        transaction.readCount = 0;
+        transaction.slaveAddress = 0x40;
+        status = I2C_transfer(i2cHandle, &transaction);
+//        if (status == false)
+//        {
+//            // Unsuccessful I2C transfer
+//            if (transaction.status == I2C_STATUS_ADDR_NACK)
+//            {
+//                // I2C slave address not acknowledged
+////                UART_write(uart, "NACK\r\n", 6);
+//            }
+//        }
+        DELAY_S(1);
+    }
+
+    I2C_close(i2cHandle);
+}
+void uartTask1(UArg arg0, UArg arg1)
+{
+
+    while (1)
+    {
         // UART_read(uart, &input, 1);
         DELAY_S(1);
         UART_write(uart, "wwww\r\n", 6);
     }
- }
-  void uartTask2(UArg arg0, UArg arg1){
+}
 
-    while (1) {
+void uartTask2(UArg arg0, UArg arg1)
+{
+
+    while (1)
+    {
         // UART_read(uart, &input, 1);
         DELAY_S(2);
         UART_write(uart, "hhh\r\n", 5);
     }
- }
-
-int main()
-{
-
-    /* Call driver init functions */
-    Board_init();
-    uartInit();
-//    GPIO_init();
-//
-//    GPIO_setConfig(CONFIG_PCA9574_RESET, GPIO_CFG_OUT_STD | GPIO_CFG_OUT_LOW);
-//    /* Turn on user LED */
-//    GPIO_write(CONFIG_PCA9574_RESET, 0);
-//    DELAY_US(10);
-//    GPIO_write(CONFIG_PCA9574_RESET, 1);
-
-    // System_printf("hello world\n");
-
-    Task_Params taskParams;
-
-    // Configure task
-    Task_Params_init(&taskParams);
-    taskParams.stack = appTaskStack;
-    taskParams.stackSize = TASK_STACK_SIZE;
-    taskParams.priority = TASK_PRIORITY;
-
-    Task_construct(&task0, uartTask1, &taskParams, NULL);
-
-    // Configure task
-    taskParams.stack = appTaskStack2;
-    taskParams.stackSize = TASK_STACK_SIZE;
-    taskParams.priority = TASK2_PRIORITY;
-
-    Task_construct(&task1, uartTask2, &taskParams, NULL);
-
-    /*
-     *  normal BIOS programs, would call BIOS_start() to enable interrupts
-     *  and start the scheduler and kick BIOS into gear.  But, this program
-     *  is a simple sanity test and calls BIOS_exit() instead.
-     */
-    // BIOS_exit(0);  /* terminates program and dumps SysMin output */
-    BIOS_start();
-    return(0);
 }
+
