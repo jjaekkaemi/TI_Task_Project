@@ -49,7 +49,7 @@
 #include <ti/drivers/GPIO.h>
 #include <ti/drivers/UART.h>
 #include <ti/drivers/I2C.h>
- #include <ti/drivers/SPI.h>
+#include <ti/drivers/SPI.h>
 
 /* Driver configuration */
 #include "ti_drivers_config.h"
@@ -69,14 +69,20 @@
 
 /* Function */
 void uartInit();
-void uartTask1(UArg arg0, UArg arg1);
-void uartTask2(UArg arg0, UArg arg1);
 int i2cInit();
 void gpioInit();
-void ioExpanderResetTask();
-void ioExpanderLCDTask();
 int spiInit();
+
+void i2cConfigReg();
+
+void ioExpanderReset();
+void ioExpanderLCDTask();
 void spiTask();
+
+
+void i2cWrite(uint8_t writeBuffer[], int count);
+void uartTask1(UArg arg0, UArg arg1);
+void uartTask2(UArg arg0, UArg arg1);
 
 /* Global */
 uint8_t appTaskStack[TASK_STACK_SIZE], appTaskStack2[TASK_STACK_SIZE];
@@ -97,29 +103,21 @@ int main()
     Board_init();
 
     uartInit();
-//    gpioInit();
-//    i2cInit();
-    spiInit();
-    //ioExpanderResetTask();
+    gpioInit();
+    i2cInit();
+    //spiInit();
+    ioExpanderReset();
 
     Task_Params taskParams;
 
     // Configure task
     Task_Params_init(&taskParams);
-//    taskParams.stack = appTaskStack;
-//    taskParams.stackSize = TASK_STACK_SIZE;
-//    taskParams.priority = TASK_PRIORITY;
-//
-//    Task_construct(&task0, ioExpanderResetTask, &taskParams, NULL);
-
-    // Configure task
-    taskParams.stack = appTaskStack2;
+    taskParams.stack = appTaskStack;
     taskParams.stackSize = TASK_STACK_SIZE;
     taskParams.priority = TASK_PRIORITY;
 
-    Task_construct(&task1, spiTask, &taskParams, NULL);
+    Task_construct(&task0, ioExpanderLCDTask, &taskParams, NULL);
 
-//    Task_construct(&task1, ioExpanderLCDTask, &taskParams, NULL);
 
     /*
      *  normal BIOS programs, would call BIOS_start() to enable interrupts
@@ -165,7 +163,7 @@ int i2cInit()
 
     I2C_Params params;
     I2C_Params_init(&params);
-    params.bitRate = I2C_400kHz;
+    params.bitRate = I2C_100kHz;
 
     // Open I2C bus for usage
     i2cHandle = I2C_open(CONFIG_I2C_0, &params);
@@ -176,37 +174,8 @@ int i2cInit()
     }
     return 0;
 }
-int spiInit(){
-    SPI_Params spiParams;
 
-
-    SPI_init();  // Initialize the SPI driver
-    SPI_Params_init(&spiParams);  // Initialize SPI parameters
-    spiParams.dataSize = 8;       // 8-bit data size
-    spi = SPI_open(CONFIG_SPI_0, &spiParams);
-    if (spi == NULL) {
-        return -1;
-    }
-    return 0;
-}
-void spiTask(){
-    int MSGSIZE = 10;
-    SPI_Transaction spiTransaction;
-    // Fill in transmitBuffer
-    uint8_t transmitBuffer[MSGSIZE];
-    uint8_t receiveBuffer[MSGSIZE];
-    bool transferOK;
-
-    spiTransaction.count = MSGSIZE;
-    spiTransaction.txBuf = (void *)transmitBuffer;
-    spiTransaction.rxBuf = (void *)receiveBuffer;
-    transferOK = SPI_transfer(spi, &spiTransaction);
-    if (!transferOK) {
-        // Error in SPI or transfer already in progress.
-        while (1);
-    }
-}
-void ioExpanderResetTask()
+void ioExpanderReset()
 {
     // Initialize slave address of transaction
     DELAY_US(10);
@@ -219,26 +188,41 @@ void ioExpanderResetTask()
     GPIO_write(CONFIG_PCA9574_RESET, 1);
 }
 
+void i2cConfigReg(){
+
+    uint8_t writeBuffer[2];
+
+    writeBuffer[0] = 0x04;
+    writeBuffer[1] = 0x00;
+
+    i2cWrite(writeBuffer, 2);
+}
+
+void i2cWrite(uint8_t writeBuffer[], int count){
+    I2C_Transaction transaction = { 0 };
+    bool status = false;
+
+    transaction.writeBuf = writeBuffer;
+    transaction.writeCount = 2;
+    transaction.readBuf = NULL;
+    transaction.readCount = 0;
+    transaction.slaveAddress = 0x20;//0x40 write bit 를 제외하고 7bit
+    status = I2C_transfer(i2cHandle, &transaction);
+}
+
 void ioExpanderLCDTask()
 {
-    I2C_Transaction transaction = { 0 };
+    i2cConfigReg();
     uint8_t writeBuffer[2];
-    bool status = false;
     uint8_t out = 0x00;
     while (1)
     {
 
-
+        out = ~out;
         writeBuffer[0] = 0x05;
-        writeBuffer[1] = ~out;
+        writeBuffer[1] = out;
 
-
-        transaction.writeBuf = writeBuffer;
-        transaction.writeCount = 2;
-        transaction.readBuf = NULL;
-        transaction.readCount = 0;
-        transaction.slaveAddress = 0x40;
-        status = I2C_transfer(i2cHandle, &transaction);
+        i2cWrite(writeBuffer, 2);
 //        if (status == false)
 //        {
 //            // Unsuccessful I2C transfer
@@ -253,6 +237,7 @@ void ioExpanderLCDTask()
 
     I2C_close(i2cHandle);
 }
+
 void uartTask1(UArg arg0, UArg arg1)
 {
 
@@ -275,3 +260,38 @@ void uartTask2(UArg arg0, UArg arg1)
     }
 }
 
+int spiInit()
+{
+    SPI_Params spiParams;
+
+    SPI_init();  // Initialize the SPI driver
+    SPI_Params_init(&spiParams);  // Initialize SPI parameters
+    spiParams.dataSize = 8;       // 8-bit data size
+    spi = SPI_open(CONFIG_SPI_0, &spiParams);
+    if (spi == NULL)
+    {
+        return -1;
+    }
+    return 0;
+}
+
+void spiTask()
+{
+    int MSGSIZE = 10;
+    SPI_Transaction spiTransaction;
+    // Fill in transmitBuffer
+    uint8_t transmitBuffer[MSGSIZE];
+    uint8_t receiveBuffer[MSGSIZE];
+    bool transferOK;
+
+    spiTransaction.count = MSGSIZE;
+    spiTransaction.txBuf = (void*) transmitBuffer;
+    spiTransaction.rxBuf = (void*) receiveBuffer;
+    transferOK = SPI_transfer(spi, &spiTransaction);
+    if (!transferOK)
+    {
+        // Error in SPI or transfer already in progress.
+        while (1)
+            ;
+    }
+}
